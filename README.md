@@ -1,3 +1,5 @@
+#Fonction pour transformer les données des plages EEX
+
 let
     // Fonction pour transformer les données
     TransformData = (Source as table) as table =>
@@ -50,3 +52,44 @@ let
         Result
 in
     TransformData
+
+
+    #Fonction pour combiner les données transformées
+let
+    // Chargement du fichier Excel et des données
+    Source = Excel.Workbook(File.Contents("C:\Users\jbattaglia\Downloads\Marché\EEX local\Price_Report_EEX_Yearly.xlsx"), null, true),
+    Plage_EEX_CH_DefinedName = Source{[Item="Plage_EEX_CH",Kind="DefinedName"]}[Data],
+    Plage_EEX_DE_DefinedName = Source{[Item="Plage_EEX_DE",Kind="DefinedName"]}[Data],
+    Plage_EEX_FR_DefinedName = Source{[Item="Plage_EEX_FR",Kind="DefinedName"]}[Data],
+
+    // Appliquer la fonction de transformation à chaque plage
+    Processed_CH = TransformData(Plage_EEX_CH_DefinedName),
+    Processed_DE = TransformData(Plage_EEX_DE_DefinedName),
+    Processed_FR = TransformData(Plage_EEX_FR_DefinedName),
+
+    // Ajouter les colonnes de marché
+    AddMarketColumn_CH = Table.AddColumn(Processed_CH, "Market", each "CH"),
+    AddMarketColumn_DE = Table.AddColumn(Processed_DE, "Market", each "DE"),
+    AddMarketColumn_FR = Table.AddColumn(Processed_FR, "Market", each "FR"),
+
+    // Combiner les tables traitées
+    Combined = Table.Combine({AddMarketColumn_CH, AddMarketColumn_DE, AddMarketColumn_FR}),
+
+    // Convertir en format long
+    UnpivotedColumns = Table.UnpivotOtherColumns(Combined, {"Date", "Market"}, "Product", "Price"),
+
+    // Extraire les informations de produit et période
+    AddedCustom = Table.AddColumn(UnpivotedColumns, "Type", each if Text.Contains([Product], "BASE") then "BASE" else if Text.Contains([Product], "PEAK") then "PEAK" else null),
+    AddedProductType = Table.AddColumn(AddedCustom, "ProductType", each Text.BeforeDelimiter([Product], " ")),
+    AddedYear = Table.AddColumn(AddedProductType, "Year", each try Text.Middle([Product], Text.Length(Text.BeforeDelimiter([Product], " ")) + 1, 2) otherwise null),
+    AddedProductPeriode = Table.AddColumn(AddedYear, "ProductPeriode", each 
+        if Text.StartsWith([ProductType], "Cal") then "Y" 
+        else if List.Contains({"Jan", "Fév", "Mars", "Avr", "Mai", "Juin", "Juil", "Août", "Sep", "Oct", "Nov", "Déc"}, Text.Start([ProductType], 3)) then "M" 
+        else if Text.StartsWith([ProductType], "Q") then "Q" 
+        else if Text.StartsWith([ProductType], "Week") then "W" 
+        else null),
+    #"Type modifié" = Table.TransformColumnTypes(AddedProductPeriode,{{"Price", type number}})
+in
+    #"Type modifié"
+
+    
